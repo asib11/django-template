@@ -11,9 +11,8 @@ from helpers.serializers import ContextMixin
 from helpers.serializers import ExtendedImageField
 
 from . import models as user_models
-from .models import PasswordForgetOTP, AdminOTP
+from .models import PasswordForgetOTP
 from django.contrib.auth.password_validation import validate_password
-from projectfile import env
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     image = ExtendedImageField()
@@ -164,6 +163,14 @@ class UserRegisterSerializer(serializers.Serializer):
         validated_data.pop('confirm_password')
         instance = self.Instance.from_user(**validated_data)
         return instance
+    
+class PasswordForgetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        if not user_models.User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email does not exist.")
+        return value
 
 class PasswordOTPVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()

@@ -17,7 +17,7 @@ from helpers.response import response, error_response
 from . import serializers as user_serializers
 from . import models as user_models
 from .permissions import IsAdminUser, IsActiveUser
-from projectfile import env
+
 import random
 
 
@@ -87,12 +87,12 @@ class UserProfileAPIView(generics.RetrieveAPIView):
         )
     
 
-# @create_view(
-#     request_body=user_serializers.OldPasswordChangeSerializer,
-#     response=ResponseSerializer,
-# )
-# class OldPasswordChangeAPIView(generics.CreateAPIView):
-#     pass
+@create_view(
+    request_body=user_serializers.OldPasswordChangeSerializer,
+    response=ResponseSerializer,
+)
+class OldPasswordChangeAPIView(generics.CreateAPIView):
+    pass
 
 
 class UserProfileUpdateAPIView(generics.UpdateAPIView):
