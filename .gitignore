@@ -1,2 +1,15 @@
 migrations/
+*.pyc
+__pycache__
+/env
+/venv
+/tmp
+/db.sqlite3
+/media
+!/media/sample
+
+/staticfiles
 .env
+/.venv
+
+stripe.exe
