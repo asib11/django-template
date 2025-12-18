@@ -116,10 +116,6 @@ class UserRegisterSerializer(serializers.Serializer):
             user.set_new_username()
             user.set_password(password)
             user.save()
-            user_models.School.objects.create(
-                user=user,
-                name="",
-            )
 
             token = RefreshToken.for_user(user=user)
 

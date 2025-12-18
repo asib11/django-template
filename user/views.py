@@ -13,6 +13,7 @@ from helpers.response import response, error_response
 from helpers.api_view import create_view
 from common.serializers import ResponseSerializer
 from helpers.response import response, error_response
+from projectile import env
 
 from . import serializers as user_serializers
 from . import models as user_models
@@ -82,7 +83,8 @@ class UserProfileAPIView(generics.RetrieveAPIView):
         serializer = self.get_serializer(instance)
         return response(
             details="Profile retrieved successfully",
-            code="PROFILE_RETRIEVED",
+            code="PROFILE_RETRIEVE_SUCCESS",
+            status_code=status.HTTP_200_OK,
             data=serializer.data
         )
     
@@ -92,7 +94,33 @@ class UserProfileAPIView(generics.RetrieveAPIView):
     response=ResponseSerializer,
 )
 class OldPasswordChangeAPIView(generics.CreateAPIView):
-    pass
+    serializer_class = user_serializers.OldPasswordChangeSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return response(
+                details="Password changed successfully",
+                code="PASSWORD_CHANGE_SUCCESS",
+                status_code=status.HTTP_200_OK
+            )
+        except serializers.ValidationError as e:
+            error_detail = e.detail
+            if isinstance(error_detail, dict):
+                first_error = next(iter(error_detail.values()))
+                error_message = str(first_error[0]) if isinstance(first_error, list) else str(first_error)
+            else:
+                error_message = str(error_detail[0]) if isinstance(error_detail, list) else str(error_detail)
+            
+            return error_response(
+                details=error_message,
+                code="PASSWORD_CHANGE_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
 
 class UserProfileUpdateAPIView(generics.UpdateAPIView):
@@ -113,13 +141,14 @@ class UserProfileUpdateAPIView(generics.UpdateAPIView):
             self.perform_update(serializer)
             return response(
                 details="Profile updated successfully",
-                code="PROFILE_UPDATED",
+                code="PROFILE_UPDATE_SUCCESS",
+                status_code=status.HTTP_200_OK,
                 data=serializer.data
             )
         except Exception as e:
             return error_response(
                 details=str(e),
-                code="UPDATE_FAILED",
+                code="PROFILE_UPDATE_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
@@ -162,7 +191,8 @@ class PasswordForgetRequestView(generics.GenericAPIView):
             )
             return response(
                 details="OTP has been sent to your email.",
-                code="OTP_SENT"
+                code="OTP_SEND_SUCCESS",
+                status_code=status.HTTP_200_OK
             )
         except Exception:
             return error_response(
@@ -183,7 +213,8 @@ class PasswordOTPVerifyView(APIView):
         if not email or not otp:
             return error_response(
                 details="Email and OTP are required.",
-                code="MISSING_FIELDS"
+                code="MISSING_REQUIRED_FIELDS",
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
         try:
@@ -200,7 +231,8 @@ class PasswordOTPVerifyView(APIView):
         if not otp_obj:
             return error_response(
                 details="Invalid OTP.",
-                code="INVALID_OTP"
+                code="INVALID_OTP",
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
         if otp_obj.is_expired():
@@ -208,12 +240,14 @@ class PasswordOTPVerifyView(APIView):
             otp_obj.save()
             return error_response(
                 details="OTP has expired.",
-                code="OTP_EXPIRED"
+                code="OTP_EXPIRED",
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
         return response(
             details="OTP is valid.",
-            code="OTP_VALID"
+            code="OTP_VERIFY_SUCCESS",
+            status_code=status.HTTP_200_OK
         )
 
 class PasswordResetConfirmView(generics.GenericAPIView):
@@ -243,7 +277,8 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         if not otp_obj:
             return error_response(
                 details="Invalid OTP or OTP already used.",
-                code="INVALID_OTP"
+                code="INVALID_OTP",
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
         if otp_obj.is_expired():
@@ -251,7 +286,8 @@ class PasswordResetConfirmView(generics.GenericAPIView):
             otp_obj.save()
             return error_response(
                 details="OTP has expired. Please request a new one.",
-                code="OTP_EXPIRED"
+                code="OTP_EXPIRED",
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
         user.set_password(new_password)
@@ -262,5 +298,6 @@ class PasswordResetConfirmView(generics.GenericAPIView):
         return response(
             details="Password has been reset successfully.",
             code="PASSWORD_RESET_SUCCESS",
+            status_code=status.HTTP_200_OK,
             data={'email': user.email}
         )
