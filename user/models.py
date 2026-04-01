@@ -32,10 +32,12 @@ class User(AbstractUser):
     def set_new_username(self):
         email = self.email
         name = email.split('@')[0]
-        user_count = User.objects.filter(
-            username__startswith=name
+        base_name = re.sub(r'\d+$', '', name)
+        existing = User.objects.filter(
+            username__regex=rf'^{re.escape(base_name)}\d*$'
         ).count()
-        self.username = name + str(user_count + 1)
+        
+        self.username = base_name + str(existing + 1)
 
     @classmethod
     def get_bot(cls):
