@@ -1,3 +1,4 @@
+import re
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -15,6 +16,7 @@ def response(
         'success': success,
         'details': details,
         'code': code,
+        'status_code': status_code,
     }
     
     if data is not None:
@@ -32,10 +34,29 @@ def error_response(
         data=None,
     ):
 
+    message = details
+
+    if isinstance(details, dict):
+        error_messages = []
+        for key, value in details.items():
+            if isinstance(value, list):
+                error_messages.extend(value)
+            else:
+                error_messages.append(str(value))
+        
+        if error_messages:
+            message = error_messages[0]
+    
+    elif isinstance(details, str):
+        match = re.search(r"string='([^']+)'", details)
+        if match:
+            message = match.group(1)
+
     response_data = {
         'success': success,
-        'details': details,
+        'details': message,
         'code': code,
+        'status_code': status_code,
     }
     
     if data is not None:
