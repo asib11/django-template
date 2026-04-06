@@ -48,8 +48,8 @@ class User(AbstractUser):
 
 class PasswordForgetOTP(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    otp = models.CharField(max_length=5)
+    otp = models.CharField(max_length=6)
     is_used = models.BooleanField(default=False)
     
     def is_expired(self):
-        return timezone.now() > self.created_at + timezone.timedelta(minutes=1)
+        return timezone.now() > self.created_at + timezone.timedelta(minutes=5)
