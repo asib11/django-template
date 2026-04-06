@@ -113,6 +113,7 @@ INSTALLED_APPS = [
     'drf_yasg',
 
     'user',
+    'contact',
 ]
 
 MIDDLEWARE = [
