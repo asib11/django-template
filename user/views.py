@@ -173,7 +173,7 @@ class PasswordForgetRequestView(generics.GenericAPIView):
             )
 
         user_models.PasswordForgetOTP.objects.filter(user=user, is_used=False).update(is_used=True)
-        otp = str(random.randint(1000, 9999))
+        otp = str(random.randint(100000, 999999))
         user_models.PasswordForgetOTP.objects.create(user=user, otp=otp)
 
         html_message = render_to_string(

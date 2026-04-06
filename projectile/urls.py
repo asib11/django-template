@@ -25,7 +25,8 @@ schema_view = get_schema_view(
 
 
 urlpatterns = [
-    path('api/', include('user.urls')),
+    path('api/v1/', include('user.urls')),
+    path('api/v1/', include('contact.urls')),
 ]
 
 
