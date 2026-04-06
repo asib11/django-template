@@ -16,7 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     image = ExtendedImageField()
-
+    role = serializers.ChoiceField(choices=user_models.USER_ROLE.choices,required=False)
     class Meta:
         model = user_models.User
         fields = (
@@ -25,10 +25,24 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             'last_name',
             'image',
             'address1',
-            'address2',
             'phone1',
-            'phone2',
+            'role',
         )
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        requested_role = attrs.get('role')
+
+        if requested_role is None:
+            return attrs
+
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError({'role': 'Authentication is required to change role.'})
+
+        if request.user.role != user_models.USER_ROLE.SUPER_ADMIN:
+            raise serializers.ValidationError({'role': 'Only super admin can change roles.'})
+
+        return attrs
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -42,11 +56,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'image',
-            'designation',
             'address1',
-            'address2',
             'phone1',
-            'phone2',
         )
 
 
@@ -133,8 +144,8 @@ class UserRegisterSerializer(serializers.Serializer):
 
     _password: str = None
 
-    first_name = serializers.CharField()
-    last_name = serializers.CharField()
+    # first_name = serializers.CharField()
+    # last_name = serializers.CharField()
     email = serializers.EmailField(
         validators=[
             UniqueValidator(
@@ -170,7 +181,7 @@ class PasswordForgetRequestSerializer(serializers.Serializer):
 
 class PasswordOTPVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
-    otp = serializers.CharField(min_length=4, max_length=4, required=True, help_text="4-digit OTP sent to your email")
+    otp = serializers.CharField(min_length=6, max_length=6, required=True, help_text="6-digit OTP sent to your email")
 
     def validate_otp(self, value):
         if not value.isdigit():
@@ -191,7 +202,7 @@ class PasswordOTPVerifySerializer(serializers.Serializer):
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    otp = serializers.CharField(min_length=4, max_length=4, required=True, help_text="4-digit OTP sent to your email")
+    otp = serializers.CharField(min_length=6, max_length=6, required=True, help_text="6-digit OTP sent to your email")
     new_password = serializers.CharField(
         write_only=True,
         required=True,

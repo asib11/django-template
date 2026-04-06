@@ -6,20 +6,19 @@ from common.models import BaseModel
 from common.enums import STATUS
 from .enums import USER_ROLE
 import re
+import uuid
 
 
 
 class User(AbstractUser):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     last_active_at = models.DateTimeField(default=timezone.now, null=True, blank=True)
     status = models.SmallIntegerField(choices=STATUS.choices, default=STATUS.ACTIVE)
-    role = models.CharField(max_length=255, choices=USER_ROLE.choices, default=USER_ROLE.ANONYMOUS_USER)
+    role = models.CharField(max_length=255, choices=USER_ROLE.choices, default=USER_ROLE.USER)
     image = models.ImageField(upload_to='profile', null=True, blank=True)
-    designation = models.CharField(max_length=255, null=True, blank=True)
     address1 = models.CharField(max_length=500, null=True, blank=True)
-    address2 = models.CharField(max_length=500, null=True, blank=True)
     phone1 = models.CharField(max_length=20, null=True, blank=True)
-    phone2 = models.CharField(max_length=20, null=True, blank=True)
-    phone3 = models.CharField(max_length=20, null=True, blank=True)
+
 
     def update_last_active(self, update_db=True):
         self.last_active_at = timezone.now()
