@@ -39,12 +39,6 @@ class User(AbstractUser):
         
         self.username = base_name + str(existing + 1)
 
-    @classmethod
-    def get_bot(cls):
-        return cls.objects.filter(
-            role=USER_ROLE.BOT
-        ).first()
-
 class PasswordForgetOTP(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     otp = models.CharField(max_length=6)
