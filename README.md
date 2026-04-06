@@ -1,4 +1,4 @@
-# Django Template
+# Angelos
 
 A Django REST API project template with JWT authentication, user management, and Docker support.
 
