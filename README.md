@@ -37,7 +37,7 @@ chmod +x initial.sh
 This script will:
 - Create a virtual environment
 - Activate it
-- Copy `.env.sample` to `.env` (if available)
+- Copy `.env.example` to `.env` (if available)
 - Install all dependencies
 - Run migrations
 
