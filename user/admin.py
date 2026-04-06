@@ -8,8 +8,6 @@ from . import models
 
 
 admin.site.unregister(Group)
-admin.site.register(models.Setting)
-
 
 admin.site.site_header = env.PROJECT_NAME
 admin.site.site_title = env.PROJECT_NAME
