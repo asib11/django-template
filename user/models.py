@@ -11,7 +11,7 @@ from .enums import USER_ROLE
 class User(AbstractUser):
     last_active_at = models.DateTimeField(default=timezone.now, null=True, blank=True)
     status = models.SmallIntegerField(choices=STATUS.choices, default=STATUS.ACTIVE)
-    role = models.CharField(max_length=255, choices=USER_ROLE.choices, default=USER_ROLE.SCHOOL_ADMIN)
+    role = models.CharField(max_length=255, choices=USER_ROLE.choices, default=USER_ROLE.ANONYMOUS_USER)
     image = models.ImageField(upload_to='profile', null=True, blank=True)
     designation = models.CharField(max_length=255, null=True, blank=True)
     address1 = models.CharField(max_length=500, null=True, blank=True)
