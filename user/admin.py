@@ -36,10 +36,8 @@ class UserAdmin(BaseUserAdmin):
                     "email",
                     "image",
                     "address1",
-                    "address2",
                     "phone1",
-                    "phone2",
-                    "phone3",
+
                 )
             }
         ),
@@ -51,7 +49,6 @@ class UserAdmin(BaseUserAdmin):
                     "is_staff",
                     "is_superuser",
                     "groups",
-                    "designation",
                     "status",
                     "role",
                     "user_permissions",
