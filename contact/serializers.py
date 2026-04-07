@@ -35,3 +35,6 @@ class ContactUsSerializer(serializers.ModelSerializer):
         model = ContactUs
         fields = ['id', 'full_name', 'email', 'phone_number', 'message', 'is_replied', 'created_at']
         read_only_fields = ['id', 'is_replied', 'created_at']
+        extra_kwargs = {
+            'phone_number': {'required': False}
+        }
