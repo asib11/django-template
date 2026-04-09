@@ -114,6 +114,7 @@ INSTALLED_APPS = [
 
     'user',
     'contact',
+    'product',
 ]
 
 MIDDLEWARE = [
