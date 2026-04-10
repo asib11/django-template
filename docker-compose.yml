@@ -31,3 +31,16 @@ services:
     restart: unless-stopped
     ports:
       - ${ADMINER_PORT}:8080
+  
+  pgVector:
+    image: pgvector/pgvector:latest
+    container_name: ${PROJECT_NAME}_pgvector
+    restart: unless-stopped
+    ports:
+      - ${PGVECTOR_PORT}:5432
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - ./tmp/pgvector:/var/lib/postgresql/data
