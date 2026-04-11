@@ -108,7 +108,6 @@ class EmailVerificationAPIView(generics.GenericAPIView):
             data={
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-                'user': user_data,
             },
         )
 
