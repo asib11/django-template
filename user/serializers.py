@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from django.contrib.auth.models import AbstractUser
+from django.db import IntegrityError
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
-from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
@@ -13,6 +15,7 @@ from helpers.serializers import ExtendedImageField
 from . import models as user_models
 from .models import PasswordForgetOTP
 from django.contrib.auth.password_validation import validate_password
+from .tokens import email_verification_token_generator
 
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     image = ExtendedImageField()
@@ -117,29 +120,6 @@ class UserRegisterSerializer(serializers.Serializer):
     @dataclass
     class Instance:
         user: AbstractUser
-        token: RefreshToken
-
-        @classmethod
-        def from_user(cls, password: str, **validated_data: dict):
-            user = user_models.User(**validated_data)
-            user.is_staff = False
-            user.is_active = True
-            user.set_new_username()
-            user.set_password(password)
-            user.save()
-
-            token = RefreshToken.for_user(user=user)
-
-            instance = cls(user=user, token=token)
-            return instance
-
-        @property
-        def refresh(self):
-            return str(self.token)
-
-        @property
-        def access(self):
-            return str(self.token.access_token)
 
 
     _password: str = None
@@ -153,8 +133,8 @@ class UserRegisterSerializer(serializers.Serializer):
             )
         ]
     )
-    password = serializers.CharField()
-    confirm_password = serializers.CharField()
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    confirm_password = serializers.CharField(write_only=True)
 
 
     def validate_password(self, value: str):
@@ -167,9 +147,50 @@ class UserRegisterSerializer(serializers.Serializer):
         raise serializers.ValidationError('Password Mismatch.')
 
     def create(self, validated_data: dict):
+        password = validated_data.pop('password')
         validated_data.pop('confirm_password')
-        instance = self.Instance.from_user(**validated_data)
-        return instance
+
+        for _ in range(5):
+            user = user_models.User(**validated_data)
+            user.is_staff = False
+            user.is_active = False
+            user.set_new_username()
+            user.set_password(password)
+
+            try:
+                user.save()
+                return self.Instance(user=user)
+            except IntegrityError as exc:
+                if 'user_user_username_key' not in str(exc):
+                    raise
+
+        raise serializers.ValidationError(
+            'Unable to create a unique username at the moment. Please try again.'
+        )
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+
+    def validate(self, attrs):
+        uid = attrs.get('uid')
+        token = attrs.get('token')
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = user_models.User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, user_models.User.DoesNotExist):
+            raise serializers.ValidationError('Invalid verification link.')
+
+        if user.is_active:
+            raise serializers.ValidationError('Your account is already verified. Please log in.')
+
+        if not email_verification_token_generator.check_token(user, token):
+            raise serializers.ValidationError('Verification link is invalid or has expired.')
+
+        attrs['user'] = user
+        return attrs
     
 class PasswordForgetRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()

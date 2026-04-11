@@ -41,14 +41,28 @@ class User(AbstractUser):
             )
 
     def set_new_username(self):
-        email = self.email
-        name = email.split('@')[0]
-        base_name = re.sub(r'\d+$', '', name)
-        existing = User.objects.filter(
-            username__regex=rf'^{re.escape(base_name)}\d*$'
-        ).count()
-        
-        self.username = base_name + str(existing + 1)
+        email = self.email or ''
+        name = email.split('@')[0] if '@' in email else email
+        base_name = re.sub(r'\d+$', '', name) or 'user'
+
+        existing_usernames = list(
+            User.objects.filter(
+                username__regex=rf'^{re.escape(base_name)}\d*$'
+            ).values_list('username', flat=True)
+        )
+
+        if base_name not in existing_usernames:
+            self.username = base_name
+            return
+
+        suffix_pattern = re.compile(rf'^{re.escape(base_name)}(\d+)$')
+        max_suffix = 0
+        for username in existing_usernames:
+            match = suffix_pattern.match(username)
+            if match:
+                max_suffix = max(max_suffix, int(match.group(1)))
+
+        self.username = f'{base_name}{max_suffix + 1}'
 
 class PasswordForgetOTP(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)

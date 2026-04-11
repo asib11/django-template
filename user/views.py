@@ -1,65 +1,126 @@
-from rest_framework import generics
-from django.db import models as dj_models
+import logging
+import random
+
 from django.core.mail import send_mail
+from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
+from rest_framework import generics, serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework import serializers, status
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework.views import APIView
-from helpers.response import response, error_response
-from helpers.api_view import create_view
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+
 from common.serializers import ResponseSerializer
-from helpers.response import response, error_response
+from helpers.api_view import create_view
+from helpers.response import error_response, response
 from projectile import env
 
-from . import serializers as user_serializers
 from . import models as user_models
-from .permissions import IsAdminUser, IsActiveUser
-
-import random
-import logging
+from . import serializers as user_serializers
+from .email_utils import build_email_verification_link, send_verification_email, send_welcome_email
 
 
 logger = logging.getLogger(__name__)
 
 
 
-@create_view(
-    request_body=user_serializers.UserRegisterSerializer,
-    response=TokenRefreshSerializer
-)
-class UserRegisterAPIView(generics.CreateAPIView):
-    permission_classes = []
-    queryset = user_models.User.objects.all()
+class UserRegisterAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.UserRegisterSerializer
 
-    def perform_create(self, serializer):
-        serializer.save()
-        instance = serializer.instance
-        user = instance.user
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
 
-        display_name = user.get_full_name().strip() or user.username or 'there'
-        html_message = render_to_string(
-            'welcome_email.html',
-            {
-                'user': user,
-                'project_name': env.PROJECT_NAME,
-                'year': timezone.now().year,
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as exc:
+            return error_response(
+                details=exc.detail,
+                code="REGISTER_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                instance = serializer.save()
+                user = instance.user
+                verification_link = build_email_verification_link(user=user, request=request)
+                send_verification_email(user=user, verification_link=verification_link)
+        except Exception:
+            logger.exception(
+                "Failed to register user and send verification email for email=%s",
+                request.data.get("email"),
+            )
+            return error_response(
+                details="Registration failed. Could not send verification email. Please try again.",
+                code="REGISTER_FAILED",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return response(
+            details="Registration successful. Verification email has been sent.",
+            code="REGISTER_SUCCESS",
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class EmailVerificationAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.EmailVerificationSerializer
+
+    def _verify(self, data):
+        serializer = self.get_serializer(data=data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as exc:
+            return error_response(
+                details=exc.detail,
+                code="EMAIL_VERIFICATION_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = serializer.validated_data['user']
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+
+        refresh = RefreshToken.for_user(user)
+
+        try:
+            send_welcome_email(user=user)
+        except Exception:
+            logger.exception(
+                'Failed to send welcome email after account activation for user_id=%s',
+                user.pk,
+            )
+
+        user_data = user_serializers.UserProfileSerializer(
+            user,
+            context=self.get_serializer_context(),
+        ).data
+
+        return response(
+            details='Email verified successfully.',
+            code='EMAIL_VERIFICATION_SUCCESS',
+            status_code=status.HTTP_200_OK,
+            data={
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            },
+        )
+
+    def get(self, request, *args, **kwargs):
+        return self._verify(
+            data={
+                'uid': request.query_params.get('uid'),
+                'token': request.query_params.get('token'),
             }
         )
 
-        try:
-            send_mail(
-                subject=f'Welcome to {env.PROJECT_NAME}',
-                message=f'Hi {display_name}, welcome to {env.PROJECT_NAME}.',
-                from_email=env.EMAIL_HOST_USER,
-                recipient_list=[user.email],
-                html_message=html_message,
-            )
-        except Exception:
-            logger.exception('Failed to send welcome email for user_id=%s', user.pk)
+    def post(self, request, *args, **kwargs):
+        return self._verify(data=request.data)
 
 
 @create_view(
