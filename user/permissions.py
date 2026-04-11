@@ -7,7 +7,7 @@ class IsActiveUser(IsAuthenticated):
         has_permission = super().has_permission(request, view)
         if has_permission:
             user: user_models.User = request.user
-            return user.status == user_models.STATUS.ACTIVE
+            return user.status == user_models.STATUS.ACTIVE and user.is_active
         return has_permission
 
 
