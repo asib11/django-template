@@ -39,8 +39,8 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
         if request is None or not request.user.is_authenticated:
             raise serializers.ValidationError({'role': 'Authentication is required to change role.'})
 
-        if request.user.role != user_models.USER_ROLE.SUPER_ADMIN:
-            raise serializers.ValidationError({'role': 'Only super admin can change roles.'})
+        if request.user.role != user_models.USER_ROLE.SUPER_ADMIN and request.user.role != user_models.USER_ROLE.ADMIN:
+            raise serializers.ValidationError({'role': 'Only super admin or admin can change roles.'})
 
         return attrs
 

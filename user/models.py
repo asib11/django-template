@@ -19,6 +19,17 @@ class User(AbstractUser):
     address1 = models.CharField(max_length=500, null=True, blank=True)
     phone1 = models.CharField(max_length=20, null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        if self.is_superuser:
+            self.is_staff = True
+            self.role = USER_ROLE.SUPER_ADMIN
+        elif self.is_staff:
+            self.role = USER_ROLE.ADMIN
+        else:
+            self.role = USER_ROLE.USER
+
+        super().save(*args, **kwargs)
+
 
     def update_last_active(self, update_db=True):
         self.last_active_at = timezone.now()

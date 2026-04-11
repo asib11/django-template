@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background: #f4f6f8;
+      font-family: Arial, sans-serif;
+      color: #1f2937;
+    "
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      style="padding: 24px 12px"
+    >
+      <tr>
+        <td align="center">
+          <table
+            role="presentation"
+            width="100%"
+            cellspacing="0"
+            cellpadding="0"
+            style="
+              max-width: 600px;
+              background: #ffffff;
+              border: 1px solid #e5e7eb;
+              border-radius: 10px;
+              padding: 24px;
+            "
+          >
+            <tr>
+              <td
+                style="font-size: 24px; font-weight: 700; padding-bottom: 12px"
+              >
+                Welcome to {{ project_name }}
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="font-size: 15px; line-height: 1.6; padding-bottom: 10px"
+              >
+                Hi {{ user.get_full_name|default:user.username }},
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="font-size: 15px; line-height: 1.6; padding-bottom: 10px"
+              >
+                Your account has been created successfully. We are glad to have
+                you with us.
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="font-size: 15px; line-height: 1.6; padding-bottom: 18px"
+              >
+                You can now log in and start using the platform.
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  font-size: 12px;
+                  color: #6b7280;
+                  border-top: 1px solid #e5e7eb;
+                  padding-top: 14px;
+                "
+              >
+                Copyright {{ year }} {{ project_name }}. All rights reserved.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

@@ -3,6 +3,7 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 from projectile import env
+from corsheaders.defaults import default_headers
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,6 +36,9 @@ ALLOWED_HOSTS = [
 
 CORS_ALLOWED_ORIGINS = env.CORS_ALLOWED_ORIGINS
 CSRF_TRUSTED_ORIGINS = env.CSRF_TRUSTED_ORIGINS
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'ngrok-skip-browser-warning',
+]
 
 
 CELERY_BROKER_URL = env.CELERY_BROKER_URL
