@@ -1,10 +1,10 @@
-# Angelos
+# Template
 
 A Django REST API project template with JWT authentication, user management, and Docker support.
 
 ## Features
 
-- Django 4.2.18 with Django REST Framework
+- Django 5.x.x with Django REST Framework
 - JWT Authentication using SimpleJWT
 - PostgreSQL database support (with SQLite fallback)
 - API documentation with drf-yasg (Swagger/OpenAPI)
