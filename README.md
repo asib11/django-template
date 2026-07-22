@@ -28,10 +28,10 @@ The fastest way to get started:
 
 ```bash
 # Make the script executable
-chmod +x initial.sh
+chmod +x entrypoint.sh
 
 # Run the setup script
-./initial.sh
+./entrypoint.sh
 ```
 
 This script will:
