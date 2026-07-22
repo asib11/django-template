@@ -168,7 +168,6 @@ Once the server is running, access the API documentation:
 ├── requirements.txt    # Python dependencies
 ├── Dockerfile          # Docker configuration
 ├── entrypoint.sh       # Docker entrypoint script
-├── initial.sh          # Quick setup script
 └── pytest.ini          # Pytest configuration
 ```
 
