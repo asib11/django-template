@@ -25,7 +25,6 @@ def response(
     return Response(response_data, status=status_code)
 
 
-
 def error_response(
         details: str,
         code: str='ERROR',
@@ -33,20 +32,18 @@ def error_response(
         status_code=status.HTTP_400_BAD_REQUEST,
         data=None,
     ):
-
     message = details
 
     if isinstance(details, dict):
-        error_messages = []
+        formatted_errors = {}
         for key, value in details.items():
             if isinstance(value, list):
-                error_messages.extend(value)
+                formatted_errors[key] = ' '.join(str(v) for v in value)
             else:
-                error_messages.append(str(value))
-        
-        if error_messages:
-            message = error_messages[0]
-    
+                formatted_errors[key] = str(value)
+
+        message = formatted_errors
+
     elif isinstance(details, str):
         match = re.search(r"string='([^']+)'", details)
         if match:
@@ -58,7 +55,7 @@ def error_response(
         'code': code,
         'status_code': status_code,
     }
-    
+
     if data is not None:
         response_data['data'] = data
 
