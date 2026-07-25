@@ -140,25 +140,26 @@ class UserEmailLoginAPIView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        
+
         try:
             serializer.is_valid(raise_exception=True)
-            return response(
-                details="Login successful",
-                code="LOGIN_SUCCESS",
-                status_code=status.HTTP_200_OK,
-                data={
-                    'refresh': serializer.validated_data['refresh'],
-                    'access': serializer.validated_data['access'],
-                    'user': serializer.validated_data['user']
-                }
-            )
         except serializers.ValidationError as e:
             return error_response(
-                details=str(e.detail[0]) if isinstance(e.detail, list) else str(e.detail),
+                details=e.detail,
                 code="LOGIN_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+        return response(
+            details="Login successful",
+            code="LOGIN_SUCCESS",
+            status_code=status.HTTP_200_OK,
+            data={
+                'refresh': serializer.validated_data['refresh'],
+                'access': serializer.validated_data['access'],
+                'user': serializer.validated_data['user']
+            }
+        )
 
 
 
@@ -168,7 +169,7 @@ class UserProfileAPIView(generics.RetrieveAPIView):
 
     def get_object(self):
         return self.request.user
-    
+
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance)
@@ -178,7 +179,7 @@ class UserProfileAPIView(generics.RetrieveAPIView):
             status_code=status.HTTP_200_OK,
             data=serializer.data
         )
-    
+
 
 @create_view(
     request_body=user_serializers.OldPasswordChangeSerializer,
@@ -190,28 +191,22 @@ class OldPasswordChangeAPIView(generics.CreateAPIView):
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={'request': request})
-        
+
         try:
             serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response(
-                details="Password changed successfully",
-                code="PASSWORD_CHANGE_SUCCESS",
-                status_code=status.HTTP_200_OK
-            )
         except serializers.ValidationError as e:
-            error_detail = e.detail
-            if isinstance(error_detail, dict):
-                first_error = next(iter(error_detail.values()))
-                error_message = str(first_error[0]) if isinstance(first_error, list) else str(first_error)
-            else:
-                error_message = str(error_detail[0]) if isinstance(error_detail, list) else str(error_detail)
-            
             return error_response(
-                details=error_message,
+                details=e.detail,
                 code="PASSWORD_CHANGE_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+        serializer.save()
+        return response(
+            details="Password changed successfully",
+            code="PASSWORD_CHANGE_SUCCESS",
+            status_code=status.HTTP_200_OK
+        )
 
 
 class UserProfileUpdateAPIView(generics.UpdateAPIView):
@@ -223,25 +218,27 @@ class UserProfileUpdateAPIView(generics.UpdateAPIView):
 
     def put(self, request, *args, **kwargs):
         return self.patch(request, *args, **kwargs)
-        
+
     def patch(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
         try:
-            instance = self.get_object()
-            serializer = self.get_serializer(instance, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
-            self.perform_update(serializer)
-            return response(
-                details="Profile updated successfully",
-                code="PROFILE_UPDATE_SUCCESS",
-                status_code=status.HTTP_200_OK,
-                data=serializer.data
-            )
-        except Exception as e:
+        except serializers.ValidationError as e:
             return error_response(
-                details=str(e),
+                details=e.detail,
                 code="PROFILE_UPDATE_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+        self.perform_update(serializer)
+        return response(
+            details="Profile updated successfully",
+            code="PROFILE_UPDATE_SUCCESS",
+            status_code=status.HTTP_200_OK,
+            data=serializer.data
+        )
 
 
 
@@ -251,7 +248,16 @@ class PasswordForgetRequestView(generics.GenericAPIView):
 
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="PASSWORD_FORGET_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
         email = serializer.validated_data['email']
 
         try:
@@ -286,6 +292,10 @@ class PasswordForgetRequestView(generics.GenericAPIView):
                 status_code=status.HTTP_200_OK
             )
         except Exception:
+            logger.exception(
+                "Failed to send password reset OTP email for email=%s",
+                email,
+            )
             return error_response(
                 details="Failed to send OTP email. Please try again.",
                 code="EMAIL_SEND_FAILED",
@@ -298,15 +308,19 @@ class PasswordOTPVerifyView(APIView):
     serializer_class = user_serializers.PasswordOTPVerifySerializer
 
     def post(self, request):
-        email = request.data.get("email")
-        otp = request.data.get("otp")
+        serializer = self.serializer_class(data=request.data)
 
-        if not email or not otp:
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
             return error_response(
-                details="Email and OTP are required.",
-                code="MISSING_REQUIRED_FIELDS",
+                details=e.detail,
+                code="OTP_VERIFY_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+        email = serializer.validated_data["email"]
+        otp = serializer.validated_data["otp"]
 
         try:
             user = user_models.User.objects.get(email=email)
@@ -317,7 +331,9 @@ class PasswordOTPVerifyView(APIView):
                 status_code=404
             )
 
-        otp_obj = user_serializers.PasswordForgetOTP.objects.filter(user=user, otp=otp, is_used=False).order_by("-created_at").first()
+        otp_obj = user_models.PasswordForgetOTP.objects.filter(
+            user=user, otp=otp, is_used=False
+        ).order_by("-created_at").first()
 
         if not otp_obj:
             return error_response(
@@ -341,14 +357,22 @@ class PasswordOTPVerifyView(APIView):
             status_code=status.HTTP_200_OK
         )
 
+
 class PasswordResetConfirmView(generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = user_serializers.PasswordResetConfirmSerializer
 
     def post(self, request):
-        
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="PASSWORD_RESET_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         email = serializer.validated_data['email']
         otp = serializer.validated_data['otp']
@@ -363,7 +387,9 @@ class PasswordResetConfirmView(generics.GenericAPIView):
                 status_code=404
             )
 
-        otp_obj = user_models.PasswordForgetOTP.objects.filter(user=user, otp=otp, is_used=False).order_by('-created_at').first()
+        otp_obj = user_models.PasswordForgetOTP.objects.filter(
+            user=user, otp=otp, is_used=False
+        ).order_by('-created_at').first()
 
         if not otp_obj:
             return error_response(
