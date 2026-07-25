@@ -7,7 +7,7 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
-
+from rest_framework.exceptions import AuthenticationFailed
 from common.serializers import ResponseObj
 from helpers.serializers import ContextMixin
 from helpers.serializers import ExtendedImageField
@@ -30,6 +30,10 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             'address1',
             'phone1',
             'role',
+            'specialty',
+            'years_of_experience',
+            'hourly_rate',
+            'all_agreements_accepted',
         )
 
     def validate(self, attrs):
@@ -61,6 +65,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'image',
             'address1',
             'phone1',
+            'specialty',
+            'years_of_experience',
+            'hourly_rate',
+            'all_agreements_accepted',
         )
 
 
@@ -110,7 +118,26 @@ class UserEmailLoginSerializer(TokenObtainPairSerializer):
         self.fields[self.username_field] = serializers.EmailField()
 
     def validate(self, attrs):
-        data = super().validate(attrs)
+        try:
+            data = super().validate(attrs)
+
+        except AuthenticationFailed:
+            email = attrs.get(self.username_field)
+            user = user_models.User.objects.filter(email=email).first()
+
+            if user is None:
+                raise serializers.ValidationError('No user found with this email address.')
+
+            if not user.is_active:
+                raise serializers.ValidationError(
+                    'Your account is not verified. Please check your email to verify your account.'
+                )
+
+            if not user.check_password(attrs.get('password')):
+                raise serializers.ValidationError('Invalid password.')
+
+            raise serializers.ValidationError('Unable to log in with provided credentials.')
+
         data['user'] = UserProfileSerializer(self.user).data
         return data
 
@@ -124,8 +151,8 @@ class UserRegisterSerializer(serializers.Serializer):
 
     _password: str = None
 
-    # first_name = serializers.CharField()
-    # last_name = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
     email = serializers.EmailField(
         validators=[
             UniqueValidator(
@@ -133,8 +160,13 @@ class UserRegisterSerializer(serializers.Serializer):
             )
         ]
     )
+    role = serializers.ChoiceField(choices=user_models.USER_ROLE.choices, default=user_models.USER_ROLE.USER)
     password = serializers.CharField(write_only=True, validators=[validate_password])
     confirm_password = serializers.CharField(write_only=True)
+    specialty = serializers.CharField(max_length=100, required=False)
+    years_of_experience = serializers.IntegerField(min_value=0, required=False)
+    hourly_rate = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    all_agreements_accepted = serializers.BooleanField(default=False)
 
 
     def validate_password(self, value: str):
