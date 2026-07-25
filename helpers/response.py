@@ -25,6 +25,7 @@ def response(
     return Response(response_data, status=status_code)
 
 
+
 def error_response(
         details: str,
         code: str='ERROR',
@@ -43,6 +44,9 @@ def error_response(
                 formatted_errors[key] = str(value)
 
         message = formatted_errors
+        
+    elif isinstance(details, list):
+        message = ' '.join(str(v) for v in details)
 
     elif isinstance(details, str):
         match = re.search(r"string='([^']+)'", details)
