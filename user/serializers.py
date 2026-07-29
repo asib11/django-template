@@ -1,285 +1,474 @@
-from dataclasses import dataclass
-from django.contrib.auth.models import AbstractUser
-from django.db import IntegrityError
-from django.utils.encoding import force_str
-from django.utils.http import urlsafe_base64_decode
-from rest_framework import serializers
-from rest_framework.validators import UniqueValidator
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.serializers import TokenRefreshSerializer
-from rest_framework.exceptions import AuthenticationFailed
-from common.serializers import ResponseObj
-from helpers.serializers import ContextMixin
-from helpers.serializers import ExtendedImageField
+import logging
+import random
+
+from django.core.mail import send_mail
+from django.db import transaction
+from django.shortcuts import render
+from django.template.loader import render_to_string
+from django.utils import timezone
+from rest_framework import generics, serializers, status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from common.serializers import ResponseSerializer
+from helpers.api_view import create_view
+from helpers.response import error_response, response
+from projectile import env
 
 from . import models as user_models
-from .models import PasswordForgetOTP
-from django.contrib.auth.password_validation import validate_password
-from .tokens import email_verification_token_generator
-
-class ProfileUpdateSerializer(serializers.ModelSerializer):
-    image = ExtendedImageField()
-    role = serializers.ChoiceField(choices=user_models.USER_ROLE.choices,required=False)
-    class Meta:
-        model = user_models.User
-        fields = (
-            'email',
-            'first_name',
-            'last_name',
-            'image',
-            'address1',
-            'phone1',
-            'role',
-            'specialty',
-            'years_of_experience',
-            'hourly_rate',
-            'all_agreements_accepted',
-        )
-
-    def validate(self, attrs):
-        request = self.context.get('request')
-        requested_role = attrs.get('role')
-
-        if requested_role is None:
-            return attrs
-
-        if request is None or not request.user.is_authenticated:
-            raise serializers.ValidationError({'role': 'Authentication is required to change role.'})
-
-        if request.user.role != user_models.USER_ROLE.SUPER_ADMIN and request.user.role != user_models.USER_ROLE.ADMIN:
-            raise serializers.ValidationError({'role': 'Only super admin or admin can change roles.'})
-
-        return attrs
+from . import serializers as user_serializers
+from .email_utils import build_email_verification_link, send_verification_email, send_welcome_email
 
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    image = ExtendedImageField()
-
-    class Meta:
-        model = user_models.User
-        fields = (
-            'email',
-            'role',
-            'first_name',
-            'last_name',
-            'image',
-            'address1',
-            'phone1',
-            'specialty',
-            'years_of_experience',
-            'hourly_rate',
-            'all_agreements_accepted',
-        )
-
-
-class OldPasswordChangeSerializer(serializers.Serializer, ContextMixin):
-    _new_password: str
-
-    password = serializers.CharField()
-    new_password = serializers.CharField()
-    confirm_password = serializers.CharField()
-
-    def validate_password(self, value):
-        user = self.get_context_user()
-        if not user.check_password(value):
-            raise serializers.ValidationError('Wrong Password')
-        return value
-
-    def validate_new_password(self, value):
-        self._new_password = value
-        return value
-
-    def validate_confirm_password(self, value):
-        new_password = self._new_password
-        if new_password != value:
-            raise serializers.ValidationError('Password Missmatch')
-        return value
-
-    def create(self, validated_data):
-        new_password = self._new_password
-        user = self.get_context_user()
-        user.set_password(new_password)
-        user.save()
-        return ResponseObj(
-            details='Password Successfully Changed.'
-        )
+logger = logging.getLogger(__name__)
 
 
 
-class TokenRefreshUserSerializer(TokenRefreshSerializer):
-    user = UserProfileSerializer()
+class UserRegisterAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.UserRegisterSerializer
 
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
 
-class UserEmailLoginSerializer(TokenObtainPairSerializer):
-    username_field = 'email'
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields[self.username_field] = serializers.EmailField()
-
-    def validate(self, attrs):
         try:
-            data = super().validate(attrs)
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as exc:
+            return error_response(
+                details=exc.detail,
+                code="REGISTER_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
-        except AuthenticationFailed:
-            email = attrs.get(self.username_field)
-            user = user_models.User.objects.filter(email=email).first()
+        try:
+            with transaction.atomic():
+                instance = serializer.save()
+                user = instance.user
+                verification_link = build_email_verification_link(user=user, request=request)
+                send_verification_email(user=user, verification_link=verification_link)
+        except Exception:
+            logger.exception(
+                "Failed to register user and send verification email for email=%s",
+                request.data.get("email"),
+            )
+            return error_response(
+                details="Registration failed. Could not send verification email. Please try again.",
+                code="REGISTER_FAILED",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-            if user is None:
-                raise serializers.ValidationError('No user found with this email address.')
+        return response(
+            details="Registration successful. Verification email has been sent.",
+            code="REGISTER_SUCCESS",
+            status_code=status.HTTP_201_CREATED,
+        )
 
-            if not user.is_active:
-                raise serializers.ValidationError(
-                    'Your account is not verified. Please check your email to verify your account.'
+
+class EmailVerificationAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.EmailVerificationSerializer
+    FRONTEND_LOGIN_URL = env.FRONTEND_LOGIN_URL 
+
+    def _verify(self, data):
+        serializer = self.get_serializer(data=data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as exc:
+            error_message = exc.detail
+            if isinstance(error_message, dict):
+                error_message = list(error_message.values())[0]
+            if isinstance(error_message, list):
+                error_message = error_message[0]
+            return None, str(error_message)
+
+        user = serializer.validated_data['user']
+        already_verified = serializer.validated_data.get('already_verified', False)
+
+        if already_verified:
+            return user, None
+
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+
+        try:
+            send_welcome_email(user=user)
+        except Exception:
+            logger.exception(
+                'Failed to send welcome email after account activation for user_id=%s',
+                user.pk,
+            )
+
+        return user, None
+
+    def get(self, request, *args, **kwargs):
+        user, error_message = self._verify(
+            data={
+                'uid': request.query_params.get('uid'),
+                'token': request.query_params.get('token'),
+            }
+        )
+
+        if error_message:
+            return render(
+                request,
+                'email_verification_result.html',
+                {
+                    'success': False,
+                    'message': error_message,
+                    'redirect_url': self.FRONTEND_LOGIN_URL,
+                },
+            )
+
+        return render(
+            request,
+            'email_verification_result.html',
+            {
+                'success': True,
+                'message': 'Your email has been verified successfully!',
+                'redirect_url': self.FRONTEND_LOGIN_URL,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as exc:
+            return error_response(
+                details=exc.detail,
+                code="EMAIL_VERIFICATION_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = serializer.validated_data['user']
+        already_verified = serializer.validated_data.get('already_verified', False)
+
+        if not already_verified:
+            user.is_active = True
+            user.save(update_fields=['is_active'])
+            try:
+                send_welcome_email(user=user)
+            except Exception:
+                logger.exception(
+                    'Failed to send welcome email after account activation for user_id=%s',
+                    user.pk,
                 )
 
-            if not user.check_password(attrs.get('password')):
-                raise serializers.ValidationError('Invalid password.')
+        refresh = RefreshToken.for_user(user)
+        user_data = user_serializers.UserProfileSerializer(
+            user,
+            context=self.get_serializer_context(),
+        ).data
 
-            raise serializers.ValidationError('Unable to log in with provided credentials.')
-
-        data['user'] = UserProfileSerializer(self.user).data
-        return data
-
-
-
-class UserRegisterSerializer(serializers.Serializer):
-    @dataclass
-    class Instance:
-        user: AbstractUser
-
-
-    _password: str = None
-
-    first_name = serializers.CharField()
-    last_name = serializers.CharField()
-    email = serializers.EmailField(
-        validators=[
-            UniqueValidator(
-                queryset=user_models.User.objects.all(),
-            )
-        ]
-    )
-    role = serializers.ChoiceField(choices=user_models.USER_ROLE.choices, default=user_models.USER_ROLE.USER)
-    password = serializers.CharField(write_only=True, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True)
-    specialty = serializers.CharField(max_length=100, required=False)
-    years_of_experience = serializers.IntegerField(min_value=0, required=False)
-    hourly_rate = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
-    all_agreements_accepted = serializers.BooleanField(default=False)
-
-
-    def validate_password(self, value: str):
-        self._password = value
-        return value
-
-    def validate_confirm_password(self, value: str):
-        if self._password is None or self._password == value:
-            return value
-        raise serializers.ValidationError('Password Mismatch.')
-
-    def create(self, validated_data: dict):
-        password = validated_data.pop('password')
-        validated_data.pop('confirm_password')
-
-        for _ in range(5):
-            user = user_models.User(**validated_data)
-            user.is_staff = False
-            user.is_active = False
-            user.set_new_username()
-            user.set_password(password)
-
-            try:
-                user.save()
-                return self.Instance(user=user)
-            except IntegrityError as exc:
-                if 'user_user_username_key' not in str(exc):
-                    raise
-
-        raise serializers.ValidationError(
-            'Unable to create a unique username at the moment. Please try again.'
+        return response(
+            details='Email verified successfully.' if not already_verified else 'Email already verified.',
+            code='EMAIL_VERIFICATION_SUCCESS',
+            status_code=status.HTTP_200_OK,
+            data={
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                'user': user_data,
+            },
         )
 
 
-class EmailVerificationSerializer(serializers.Serializer):
-    uid = serializers.CharField()
-    token = serializers.CharField()
+@create_view(
+    request_body=TokenObtainPairSerializer,
+    response=TokenRefreshSerializer
+)
+class UserLoginAPIView(TokenObtainPairView):
+    pass
 
-    def validate(self, attrs):
-        uid = attrs.get('uid')
-        token = attrs.get('token')
+
+@create_view(
+    request_body=user_serializers.UserEmailLoginSerializer,
+    response=user_serializers.TokenRefreshUserSerializer
+)
+class UserEmailLoginAPIView(TokenObtainPairView):
+    serializer_class = user_serializers.UserEmailLoginSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
 
         try:
-            user_id = force_str(urlsafe_base64_decode(uid))
-            user = user_models.User.objects.get(pk=user_id)
-        except (TypeError, ValueError, OverflowError, user_models.User.DoesNotExist):
-            raise serializers.ValidationError('Invalid verification link.')
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="LOGIN_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
-        if user.is_active:
-            attrs['user'] = user
-            attrs['already_verified'] = True
-            return attrs
+        return response(
+            details="Login successful",
+            code="LOGIN_SUCCESS",
+            status_code=status.HTTP_200_OK,
+            data={
+                'refresh': serializer.validated_data['refresh'],
+                'access': serializer.validated_data['access'],
+                'user': serializer.validated_data['user']
+            }
+        )
 
-        if not email_verification_token_generator.check_token(user, token):
-            raise serializers.ValidationError('Verification link is invalid or has expired.')
 
-        attrs['user'] = user
-        attrs['already_verified'] = False
-        return attrs
-    
-class PasswordForgetRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
 
-    def validate_email(self, value):
-        if not user_models.User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("User with this email does not exist.")
-        return value
+class UserProfileAPIView(generics.RetrieveAPIView):
+    serializer_class = user_serializers.UserProfileSerializer
+    permission_classes = [IsAuthenticated]
 
-class PasswordOTPVerifySerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField(min_length=6, max_length=6, required=True, help_text="6-digit OTP sent to your email")
+    def get_object(self):
+        return self.request.user
 
-    def validate_otp(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("OTP must contain only numbers.")
-        return value
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return response(
+            details="Profile retrieved successfully",
+            code="PROFILE_RETRIEVE_SUCCESS",
+            status_code=status.HTTP_200_OK,
+            data=serializer.data
+        )
 
-    def validate(self, attrs):
-        email = attrs.get('email')
-        otp = attrs.get('otp')
+
+@create_view(
+    request_body=user_serializers.OldPasswordChangeSerializer,
+    response=ResponseSerializer,
+)
+class OldPasswordChangeAPIView(generics.CreateAPIView):
+    serializer_class = user_serializers.OldPasswordChangeSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="PASSWORD_CHANGE_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer.save()
+        return response(
+            details="Password changed successfully",
+            code="PASSWORD_CHANGE_SUCCESS",
+            status_code=status.HTTP_200_OK
+        )
+
+
+class UserProfileUpdateAPIView(generics.UpdateAPIView):
+    serializer_class = user_serializers.ProfileUpdateSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    def put(self, request, *args, **kwargs):
+        return self.patch(request, *args, **kwargs)
+
+    def patch(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="PROFILE_UPDATE_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        self.perform_update(serializer)
+        return response(
+            details="Profile updated successfully",
+            code="PROFILE_UPDATE_SUCCESS",
+            status_code=status.HTTP_200_OK,
+            data=serializer.data
+        )
+
+
+
+class PasswordForgetRequestView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.PasswordForgetRequestSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="PASSWORD_FORGET_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        email = serializer.validated_data['email']
 
         try:
             user = user_models.User.objects.get(email=email)
-            otp_record = PasswordForgetOTP.objects.get(user=user, otp=otp, is_used=False)
-        except (user_models.User.DoesNotExist, PasswordForgetOTP.DoesNotExist):
-            raise serializers.ValidationError("Invalid email or OTP.")
-        return attrs
+        except user_models.User.DoesNotExist:
+            return error_response(
+                details="User with this email does not exist.",
+                code="USER_NOT_FOUND",
+                status_code=404
+            )
+
+        user_models.PasswordForgetOTP.objects.filter(user=user, is_used=False).update(is_used=True)
+        otp = str(random.randint(100000, 999999))
+        user_models.PasswordForgetOTP.objects.create(user=user, otp=otp)
+
+        html_message = render_to_string(
+            'password_reset_otp.html',
+            {'otp': otp, 'year': timezone.now().year, 'user': user}
+        )
+
+        try:
+            send_mail(
+                subject='Password Reset OTP',
+                message=f'Your OTP for password reset is: {otp}',
+                from_email=env.EMAIL_HOST_USER,
+                recipient_list=[email],
+                html_message=html_message
+            )
+            return response(
+                details="OTP has been sent to your email.",
+                code="OTP_SEND_SUCCESS",
+                status_code=status.HTTP_200_OK
+            )
+        except Exception:
+            logger.exception(
+                "Failed to send password reset OTP email for email=%s",
+                email,
+            )
+            return error_response(
+                details="Failed to send OTP email. Please try again.",
+                code="EMAIL_SEND_FAILED",
+                status_code=500
+            )
 
 
-class PasswordResetConfirmSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp = serializers.CharField(min_length=6, max_length=6, required=True, help_text="6-digit OTP sent to your email")
-    new_password = serializers.CharField(
-        write_only=True,
-        required=True,
-        validators=[validate_password],
-        style={'input_type': 'password'},
-        help_text="Your new password"
-    )
-    confirm_password = serializers.CharField(
-        write_only=True,
-        required=True,
-        style={'input_type': 'password'},
-        help_text="Confirm your new password"
-    )
+class PasswordOTPVerifyView(APIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.PasswordOTPVerifySerializer
 
-    def validate_otp(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("OTP must contain only numbers.")
-        return value
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
 
-    def validate(self, attrs):
-        if attrs['new_password'] != attrs['confirm_password']:
-            raise serializers.ValidationError({"confirm_password": "Password fields didn't match."})
-        validate_password(attrs['new_password'])
-        return attrs
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="OTP_VERIFY_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        email = serializer.validated_data["email"]
+        otp = serializer.validated_data["otp"]
+
+        try:
+            user = user_models.User.objects.get(email=email)
+        except user_models.User.DoesNotExist:
+            return error_response(
+                details="User not found.",
+                code="USER_NOT_FOUND",
+                status_code=404
+            )
+
+        otp_obj = user_models.PasswordForgetOTP.objects.filter(
+            user=user, otp=otp, is_used=False
+        ).order_by("-created_at").first()
+
+        if not otp_obj:
+            return error_response(
+                details="Invalid OTP.",
+                code="INVALID_OTP",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        if otp_obj.is_expired():
+            otp_obj.is_used = True
+            otp_obj.save()
+            return error_response(
+                details="OTP has expired.",
+                code="OTP_EXPIRED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        return response(
+            details="OTP is valid.",
+            code="OTP_VERIFY_SUCCESS",
+            status_code=status.HTTP_200_OK
+        )
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = user_serializers.PasswordResetConfirmSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return error_response(
+                details=e.detail,
+                code="PASSWORD_RESET_FAILED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        email = serializer.validated_data['email']
+        otp = serializer.validated_data['otp']
+        new_password = serializer.validated_data['new_password']
+
+        try:
+            user = user_models.User.objects.get(email=email)
+        except user_models.User.DoesNotExist:
+            return error_response(
+                details="User not found.",
+                code="USER_NOT_FOUND",
+                status_code=404
+            )
+
+        otp_obj = user_models.PasswordForgetOTP.objects.filter(
+            user=user, otp=otp, is_used=False
+        ).order_by('-created_at').first()
+
+        if not otp_obj:
+            return error_response(
+                details="Invalid OTP or OTP already used.",
+                code="INVALID_OTP",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        if otp_obj.is_expired():
+            otp_obj.is_used = True
+            otp_obj.save()
+            return error_response(
+                details="OTP has expired. Please request a new one.",
+                code="OTP_EXPIRED",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.set_password(new_password)
+        user.save()
+        otp_obj.is_used = True
+        otp_obj.save()
+
+        return response(
+            details="Password has been reset successfully.",
+            code="PASSWORD_RESET_SUCCESS",
+            status_code=status.HTTP_200_OK,
+            data={'email': user.email}
+        )
