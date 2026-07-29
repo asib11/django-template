@@ -216,12 +216,15 @@ class EmailVerificationSerializer(serializers.Serializer):
             raise serializers.ValidationError('Invalid verification link.')
 
         if user.is_active:
-            raise serializers.ValidationError('Your account is already verified. Please log in.')
+            attrs['user'] = user
+            attrs['already_verified'] = True
+            return attrs
 
         if not email_verification_token_generator.check_token(user, token):
             raise serializers.ValidationError('Verification link is invalid or has expired.')
 
         attrs['user'] = user
+        attrs['already_verified'] = False
         return attrs
     
 class PasswordForgetRequestSerializer(serializers.Serializer):
