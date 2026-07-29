@@ -16,8 +16,8 @@ def build_email_verification_link(user, request=None):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = email_verification_token_generator.make_token(user)
 
-    verify_path = reverse('email-verify')
     query = urlencode({'uid': uid, 'token': token})
+    verify_path = reverse('email-verify')
 
     if request is not None:
         return request.build_absolute_uri(f'{verify_path}?{query}')
