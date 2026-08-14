@@ -4,13 +4,18 @@ services:
   #   container_name: ${PROJECT_NAME}_app
   #   command: ${APP_ENTRYPOINT:-"/app/entrypoint.sh"}
   #   restart: unless-stopped
+  #   env_file:
+  #     - .env
   #   depends_on:
-  #     - redis
-  #     - db
-  #   ports:
-  #     - 8002:8001
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_started
   #   volumes:
   #     - .:/app
+  #     - static_volume:/app/staticfiles
+  #   ports:
+  #     - "${PORT}:8000"
 
   db:
     image: postgres:17
@@ -24,23 +29,28 @@ services:
     ports:
       - "${DB_PORT}:5432"
     restart: unless-stopped
-  
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${PROJECT_NAME}_redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    volumes:
+      - ./tmp/redis:/data
+
   adminer:
     image: adminer
     container_name: ${PROJECT_NAME}_adminer
     restart: unless-stopped
     ports:
-      - ${ADMINER_PORT}:8080
-  
-  pgVector:
-    image: pgvector/pgvector:latest
-    container_name: ${PROJECT_NAME}_pgvector
-    restart: unless-stopped
-    ports:
-      - ${PGVECTOR_PORT}:5432
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-    volumes:
-      - ./tmp/pgvector:/var/lib/postgresql/data
+      - "${ADMINER_PORT:-8080}:8080"
+
+volumes:
+  static_volume:
