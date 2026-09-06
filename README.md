@@ -135,18 +135,134 @@ docker-compose up
 
 ## Running Tests
 
-This project uses pytest for testing:
+This project uses Django's built-in test runner (works with any app in this codebase — swap
+`<app_name>` / `<app_name>.tests.<ClassName>` / `...::test_method_name` for the app or test you want).
+
+### Prerequisites
+
+Make sure migrations exist for every app before running tests, otherwise Django's test
+database won't have the required tables:
 
 ```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov
-
-# Run specific test file
-pytest user/tests/
+python manage.py makemigrations
 ```
+
+### Basic Commands
+
+Run the entire test suite (all apps):
+
+```bash
+python manage.py test
+```
+
+Run tests for a single app:
+
+```bash
+python manage.py test <app_name>
+```
+
+Run a single test class:
+
+```bash
+python manage.py test <app_name>.tests.<TestClassName>
+```
+
+Run a single test method:
+
+```bash
+python manage.py test <app_name>.tests.<TestClassName>.<test_method_name>
+```
+
+### Verbosity
+
+Control how much detail is printed while tests run:
+
+```bash
+python manage.py test <app_name> -v 0   # Silent — only final OK/FAILED
+python manage.py test <app_name> -v 1   # Default — dot progress (. per passing test)
+python manage.py test <app_name> -v 2   # Verbose — prints each test's name and result
+python manage.py test <app_name> -v 3   # Very verbose — includes DB setup/teardown logs
+```
+
+Use `-v 2` when writing new tests or debugging a failure — it shows exactly which test
+ran and whether it passed.
+
+### Speeding Up Repeated Runs
+
+By default, Django creates a fresh test database, applies all migrations, runs the
+tests, then destroys the database — every single run. On larger projects this migration
+step can be slow.
+
+Use `--keepdb` to reuse the test database between runs (only new migrations get applied):
+
+```bash
+python manage.py test <app_name> --keepdb
+```
+
+> If you change model fields significantly, run once **without** `--keepdb` to avoid
+> schema drift between the kept test database and your current models.
+
+### Running in Parallel (optional, for large suites)
+
+```bash
+python manage.py test --parallel
+```
+
+### Combining Flags
+
+```bash
+python manage.py test <app_name> -v 2 --keepdb
+```
+
+### Using pytest instead (if `pytest-django` is installed)
+
+```bash
+pytest <app_name>/tests.py -v
+pytest <app_name>/tests.py::<TestClassName>::<test_method_name> -v
+pytest --reuse-db          # equivalent of --keepdb
+```
+
+### Mocking External Services
+
+When a test touches an external API (payment gateway, AI/LLM calls, email sending,
+PDF/file generation libraries, etc.), mock it instead of calling the real service —
+tests should be fast, deterministic, and runnable offline/in CI without real credentials:
+
+```python
+from unittest.mock import patch
+
+@patch('<app_name>.<module>.<external_call_function>')
+def test_something(self, mock_external_call):
+    mock_external_call.return_value = {"example": "response"}
+    # ... call the view/endpoint under test and assert on the result
+```
+
+### Isolating Uploaded/Generated Files
+
+If tests create files (uploads, generated PDFs, images), point `MEDIA_ROOT` at a temp
+directory so test runs don't pollute the real `media/` folder, and clean it up after:
+
+```python
+import shutil
+import tempfile
+from django.test import override_settings
+
+TEMP_MEDIA_ROOT = tempfile.mkdtemp()
+
+@override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
+class MyTestCase(APITestCase):
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
+```
+
+### Quick Checklist Before Pushing
+
+- [ ] `python manage.py makemigrations --check` — no missing migrations
+- [ ] `python manage.py test` — full suite passes
+- [ ] New endpoints/permissions have at least: an "unauthorized/forbidden" case, a
+      "happy path" case, and one "not found / bad input" case
 
 ## API Documentation
 
