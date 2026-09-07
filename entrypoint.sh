@@ -9,10 +9,12 @@ if [ ! -d "$ENV_FOLDER" ]; then
     python3 -m venv $ENV_FOLDER
     source $ENV_FOLDER/bin/activate
     pip install pip wheel setuptools -U
-    pip install -r requirements.txt
 else
     source $ENV_FOLDER/bin/activate
 fi
+
+echo "Installing requirements..."
+pip install -r requirements.txt
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "Copying .env.example to .env ..."
@@ -88,12 +90,16 @@ python3 manage.py collectstatic --no-input
 echo "Running migrate..."
 python3 manage.py migrate
 
+echo "Seeding program data..."
+python3 manage.py seed_programs
+python3 manage.py seed_questions
+
 echo "Starting Celery worker..."
 mkdir -p tmp
-celery -A projectile worker \
-    --loglevel=info \
-    --concurrency=4 \
-    --logfile=tmp/celery-worker.log &
+# celery -A projectile worker \
+#     --loglevel=info \
+#     --concurrency=4 \
+#     --logfile=tmp/celery-worker.log &
 
 echo "Starting Daphne server..."
 exec daphne -b 0.0.0.0 -p 8000 projectile.asgi:application
