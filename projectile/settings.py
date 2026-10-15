@@ -28,17 +28,16 @@ EMAIL_HOST_USER = env.EMAIL_HOST_USER
 EMAIL_HOST_PASSWORD = env.EMAIL_HOST_PASSWORD
 EMAIL_VERIFICATION_TIMEOUT = env.EMAIL_VERIFICATION_TIMEOUT
 
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in env.CORS_ALLOWED_ORIGINS if origin.strip()]
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in env.CORS_ALLOWED_ORIGINS if origin.strip()]
 
-
-ALLOWED_HOSTS = [
-    '*',
-]
-
-
-CORS_ALLOWED_ORIGINS = env.CORS_ALLOWED_ORIGINS
-CSRF_TRUSTED_ORIGINS = env.CSRF_TRUSTED_ORIGINS
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'ngrok-skip-browser-warning',
+]
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://([a-zA-Z0-9-]+\.)*vn4et\.com$",
 ]
 
 
