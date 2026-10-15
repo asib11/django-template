@@ -36,13 +36,6 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('api/v1/', include('user.urls')),
     path('api/v1/', include('contact.urls')),
-    path('api/v1/', include('program.urls')),
-    path('api/v1/', include('payment.urls')),
-    path('api/v1/', include('assessment.urls')),
-    path('api/v1/', include('booking.urls')),
-    path('api/v1/', include('callchat.urls')),
-    path('api/v1/', include('talent_portal.urls')),
-    path('api/v1/', include('notification.urls')),
 ]
 
 
@@ -57,8 +50,8 @@ if not env.PROD_ENV_DISABLE_ADMIN:
     urlpatterns += [
         path('admin/', admin.site.urls),
     ]
-    
-if not env.DEBUG:
+
+if env.DEBUG == False:
     urlpatterns += [
         re_path(r'^.*$', custom_page_not_found_view, name='not-found-redirect'),
     ]
