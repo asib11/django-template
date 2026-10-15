@@ -25,7 +25,7 @@ SWAGGER_DEFAULT_API_URL = os.getenv('SWAGGER_DEFAULT_API_URL') or 'http://127.0.
 PROJECT_NAME = os.getenv('PROJECT_NAME') or 'Django Project'
 PROJECT_DESCRIPTION = os.getenv('PROJECT_DESCRIPTION') or PROJECT_NAME
 PROJECT_VERSION = os.getenv('PROJECT_VERSION') or 'v1'
-
+FRONTEND_404_URL = os.getenv('FRONTEND_404_URL') or 'https://vn4et.com/404'
 
 DEBUG = is_enabled('DEBUG')
 SECRET_KEY = os.getenv('SECRET_KEY')
